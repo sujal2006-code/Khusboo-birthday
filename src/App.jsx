@@ -14,6 +14,13 @@ import FinalMessage from './components/FinalMessage';
 import OwnerControlPanel from './components/OwnerControlPanel';
 import OwnerLoginModal from './components/OwnerLoginModal';
 import { sound } from './utils/audioSynth';
+import {
+  validateStepLocally,
+  getSavedLocalProgress,
+  saveLocalProgress,
+  clearLocalProgress,
+  tryParseJsonResponse
+} from './utils/progressGuard';
 
 export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
@@ -23,10 +30,12 @@ export default function App() {
   // Authentication & Mode State
   const [isOwnerMode, setIsOwnerMode] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [isProgressLoaded, setIsProgressLoaded] = useState(false);
 
   // Secret click counter for owner access trigger in footer
   const clickCountRef = useRef(0);
   const clickTimeoutRef = useRef(null);
+  const hasUserNavigatedRef = useRef(false);
 
   // 1. Initial Authentication & Guest Progress Verification
   useEffect(() => {
@@ -40,10 +49,10 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ token: savedOwnerToken })
           });
-          const data = await res.json();
-          if (data.isValid) {
+          const data = await tryParseJsonResponse(res);
+          if (data && data.isValid) {
             setIsOwnerMode(true);
-          } else {
+          } else if (data) {
             sessionStorage.removeItem('khusboo_owner_token');
           }
         } catch (e) {
@@ -51,7 +60,7 @@ export default function App() {
         }
       }
 
-      // Check verified guest progress via cryptographic token
+      // Check verified guest progress via cryptographic token (with static-host fallback)
       const savedProgressToken = localStorage.getItem('khusboo_progress_token');
       if (savedProgressToken) {
         try {
@@ -60,22 +69,40 @@ export default function App() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ progressToken: savedProgressToken })
           });
-          const data = await res.json();
-          if (data.isValid) {
-            const verified = Math.min(Math.max(data.maxUnlocked, 1), 9);
-            setMaxUnlockedPage(verified);
-            setCurrentPage(verified);
+          const data = await tryParseJsonResponse(res);
+          if (hasUserNavigatedRef.current) return;
+
+          if (data) {
+            if (data.isValid) {
+              const verified = Math.min(Math.max(data.maxUnlocked, 1), 9);
+              setMaxUnlockedPage(verified);
+              setCurrentPage(verified);
+              saveLocalProgress(verified);
+            } else {
+              // Tampered token -> reset to step 1
+              setMaxUnlockedPage(1);
+              setCurrentPage(1);
+              clearLocalProgress();
+            }
           } else {
-            // Tampered token -> reset to step 1
-            setMaxUnlockedPage(1);
-            setCurrentPage(1);
-            localStorage.removeItem('khusboo_progress_token');
+            const localStep = getSavedLocalProgress();
+            setMaxUnlockedPage(localStep);
+            setCurrentPage(localStep);
           }
         } catch (e) {
-          setMaxUnlockedPage(1);
-          setCurrentPage(1);
+          if (hasUserNavigatedRef.current) return;
+          const localStep = getSavedLocalProgress();
+          setMaxUnlockedPage(localStep);
+          setCurrentPage(localStep);
+        }
+      } else {
+        const localStep = getSavedLocalProgress();
+        if (localStep > 1 && !hasUserNavigatedRef.current) {
+          setMaxUnlockedPage(localStep);
+          setCurrentPage(localStep);
         }
       }
+      setIsProgressLoaded(true);
     };
 
     initApp();
@@ -108,6 +135,7 @@ export default function App() {
       }
 
       // Check if user or guest attempts manual page navigation via URL
+      if (!isProgressLoaded && !isOwnerMode) return;
       const pageMatch = hash.match(/page[=-]?(\d+)/i) || search.match(/page=(\d+)/i);
       if (pageMatch) {
         const requested = parseInt(pageMatch[1], 10);
@@ -136,10 +164,12 @@ export default function App() {
       window.removeEventListener('popstate', handleUrlNavigation);
       window.removeEventListener('hashchange', handleUrlNavigation);
     };
-  }, [isOwnerMode, maxUnlockedPage]);
+  }, [isOwnerMode, maxUnlockedPage, isProgressLoaded]);
 
-  // 4. Advance Page with Server Validation
+  // 4. Advance Page with Server Validation (and static-host fallback)
   const advanceToPage = async (targetPage, proof = {}) => {
+    hasUserNavigatedRef.current = true;
+
     if (isOwnerMode) {
       // Owner Mode: instant access with all restrictions bypassed
       setCurrentPage(targetPage);
@@ -157,6 +187,18 @@ export default function App() {
       return;
     }
 
+    const applyLocalFallback = () => {
+      const localResult = validateStepLocally(targetPage, proof, maxUnlockedPage);
+      if (localResult.allowed) {
+        saveLocalProgress(localResult.maxUnlocked);
+        setMaxUnlockedPage(localResult.maxUnlocked);
+        setCurrentPage(targetPage);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        console.warn('Step progression rejected:', localResult.error);
+      }
+    };
+
     // Guest Mode: Validate sequential step unlock with backend
     try {
       const res = await fetch('/api/progress/advance-step', {
@@ -167,10 +209,17 @@ export default function App() {
           proof
         })
       });
-      const data = await res.json();
+      const data = await tryParseJsonResponse(res);
 
-      if (data.success && data.progressToken) {
+      if (data === null) {
+        // Static deployment or API route unavailable: validate locally
+        applyLocalFallback();
+        return;
+      }
+
+      if (res.ok && data.success && data.progressToken) {
         localStorage.setItem('khusboo_progress_token', data.progressToken);
+        saveLocalProgress(data.maxUnlocked);
         setMaxUnlockedPage(data.maxUnlocked);
         setCurrentPage(targetPage);
         window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -178,7 +227,8 @@ export default function App() {
         console.warn('Step progression rejected by server:', data.error);
       }
     } catch (err) {
-      console.error('Failed to validate step advance:', err);
+      // Network error / offline / static host without backend
+      applyLocalFallback();
     }
   };
 
@@ -198,15 +248,16 @@ export default function App() {
   };
 
   const handleResetGuestProgress = async () => {
+    hasUserNavigatedRef.current = true;
+    clearLocalProgress();
     try {
       const res = await fetch('/api/progress/reset', { method: 'POST' });
-      const data = await res.json();
-      if (data.success && data.progressToken) {
+      const data = await tryParseJsonResponse(res);
+      if (data && data.success && data.progressToken) {
         localStorage.setItem('khusboo_progress_token', data.progressToken);
-        localStorage.removeItem('khusboo_unlocked_step');
       }
     } catch (e) {
-      localStorage.removeItem('khusboo_progress_token');
+      // Local progress already cleared above
     }
     setMaxUnlockedPage(1);
     setCurrentPage(1);
@@ -214,6 +265,7 @@ export default function App() {
   };
 
   const handleReplay = () => {
+    hasUserNavigatedRef.current = true;
     setCurrentPage(1);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, Lock, Eye, EyeOff, X, Sparkles, AlertCircle } from 'lucide-react';
 import { sound } from '../utils/audioSynth';
+import { tryParseJsonResponse } from '../utils/progressGuard';
 
 export default function OwnerLoginModal({ isOpen, onClose, onLoginSuccess }) {
   const [password, setPassword] = useState('');
@@ -28,7 +29,13 @@ export default function OwnerLoginModal({ isOpen, onClose, onLoginSuccess }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: password.trim() })
       });
-      const data = await res.json();
+      const data = await tryParseJsonResponse(res);
+
+      if (!data) {
+        sound.playError();
+        setErrorMsg('Owner login requires the backend server.');
+        return;
+      }
 
       if (data.success && data.token) {
         sound.playChime();

@@ -1,14 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Clock, PartyPopper, ArrowRight, Heart, Gift } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { sound } from '../utils/audioSynth';
 
-export default function Countdown({ onComplete, isOwner = false }) {
-  // Target: 25 November 2026, 12:00:00 AM IST (UTC+5:30)
-  // 2026-11-25T00:00:00+05:30
-  const TARGET_TIME = new Date('2026-11-25T00:00:00+05:30').getTime();
+// Target: 26 November 2026, 12:00:00 AM IST (UTC+5:30)
+const TARGET_TIME = new Date('2026-11-26T00:00:00+05:30').getTime();
 
+export default function Countdown({ onComplete, isOwner = false }) {
   const [timeLeft, setTimeLeft] = useState({
     days: 0,
     hours: 0,
@@ -18,9 +17,12 @@ export default function Countdown({ onComplete, isOwner = false }) {
   });
 
   const [forceComplete, setForceComplete] = useState(false);
-  const [hasCelebrated, setHasCelebrated] = useState(false);
+  const [isContinuing, setIsContinuing] = useState(false);
+  const hasCelebratedRef = useRef(false);
 
   useEffect(() => {
+    let intervalId = null;
+
     const calculateTime = () => {
       const now = Date.now();
       const difference = TARGET_TIME - now;
@@ -34,41 +36,74 @@ export default function Countdown({ onComplete, isOwner = false }) {
           isFinished: true
         });
 
-        if (!hasCelebrated) {
-          setHasCelebrated(true);
+        if (!hasCelebratedRef.current) {
+          hasCelebratedRef.current = true;
           sound.playChime();
           // Trigger celebration confetti
-          confetti({
-            particleCount: 80,
-            spread: 90,
-            origin: { y: 0.6 },
-            colors: ['#FFD1DC', '#E6E6FA', '#FFDAB9', '#B76E79', '#FFFDD0']
-          });
+          try {
+            confetti({
+              particleCount: 80,
+              spread: 90,
+              origin: { y: 0.6 },
+              colors: ['#FFD1DC', '#E6E6FA', '#FFDAB9', '#B76E79', '#FFFDD0']
+            });
+          } catch (e) {
+            console.warn('Confetti effect skipped:', e);
+          }
         }
-      } else {
-        const days = Math.floor(difference / (1000 * 60 * 60 * 24));
-        const hours = Math.floor((difference / (1000 * 60 * 60)) % 24);
-        const minutes = Math.floor((difference / (1000 * 60)) % 60);
-        const seconds = Math.floor((difference / 1000) % 60);
 
-        setTimeLeft({
-          days,
-          hours,
-          minutes,
-          seconds,
-          isFinished: false
-        });
+        if (intervalId) {
+          clearInterval(intervalId);
+          intervalId = null;
+        }
+        return true;
       }
+
+      const days = Math.floor(difference / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((difference / (1000 * 60 * 60)) % 24);
+      const minutes = Math.floor((difference / (1000 * 60)) % 60);
+      const seconds = Math.floor((difference / 1000) % 60);
+
+      setTimeLeft({
+        days,
+        hours,
+        minutes,
+        seconds,
+        isFinished: false
+      });
+      return false;
     };
 
-    calculateTime();
-    const interval = setInterval(calculateTime, 1000);
-    return () => clearInterval(interval);
-  }, [TARGET_TIME, forceComplete, hasCelebrated]);
+    const alreadyFinished = calculateTime();
+    if (!alreadyFinished) {
+      intervalId = setInterval(calculateTime, 1000);
+    }
+
+    return () => {
+      if (intervalId) clearInterval(intervalId);
+    };
+  }, [forceComplete]);
 
   const handleTestPreview = () => {
     setForceComplete(true);
     sound.playChime();
+  };
+
+  const handleContinue = async () => {
+    if (isContinuing) return;
+    setIsContinuing(true);
+    try {
+      sound.playChime();
+    } catch (e) {
+      console.warn('Audio chime failed:', e);
+    }
+    try {
+      if (onComplete) {
+        await onComplete();
+      }
+    } finally {
+      setIsContinuing(false);
+    }
   };
 
   return (
@@ -116,7 +151,7 @@ export default function Countdown({ onComplete, isOwner = false }) {
           <div>
             <div className="flex items-center justify-center gap-2 text-sm text-[#8B4853] font-medium mb-6">
               <Clock className="w-4 h-4 text-[#B76E79]" />
-              <span>Counting down to 25 November 2026, 12:00 AM IST</span>
+              <span>Counting down to 26 November 2026, 12:00 AM IST</span>
             </div>
 
             {/* Countdown Tiles */}
@@ -184,13 +219,12 @@ export default function Countdown({ onComplete, isOwner = false }) {
               </p>
 
               <motion.button
+                type="button"
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.96 }}
-                onClick={() => {
-                  sound.playChime();
-                  onComplete();
-                }}
-                className="px-8 py-3.5 rounded-full bg-gradient-to-r from-[#B76E79] to-[#D88A96] text-white font-bold text-base shadow-lg shadow-rose-300/50 flex items-center gap-2 hover:shadow-xl transition-all"
+                disabled={isContinuing}
+                onClick={handleContinue}
+                className="px-8 py-3.5 rounded-full bg-gradient-to-r from-[#B76E79] to-[#D88A96] text-white font-bold text-base shadow-lg shadow-rose-300/50 flex items-center gap-2 hover:shadow-xl transition-all cursor-pointer disabled:opacity-75"
               >
                 <span>CONTINUE</span>
                 <ArrowRight className="w-5 h-5" />
