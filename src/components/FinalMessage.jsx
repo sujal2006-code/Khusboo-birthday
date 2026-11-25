@@ -16,7 +16,7 @@ That's all for today...
 
 Instead of saying only Happy Birthday, I wanted to create a little memory for one of my very good friends.
 
-Okay, Good Night! 🌙
+Have a beautiful day, Khusboo! May your day be filled with endless smiles, happiness, love, and wonderful surprises. Keep shining and stay happy always! ❤️
 
 Bye Bye, Khusboo! 💗`;
 

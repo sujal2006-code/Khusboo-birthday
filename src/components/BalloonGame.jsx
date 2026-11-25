@@ -32,7 +32,6 @@ const BALLOON_STYLES = [
 
 export default function BalloonGame({ onNext, isOwner = false }) {
   const [poppedState, setPoppedState] = useState(Array(10).fill(false));
-  const [activeCompliment, setActiveCompliment] = useState(null);
 
   const poppedCount = poppedState.filter(Boolean).length;
   const isAllPopped = poppedCount === 10;
@@ -71,11 +70,6 @@ export default function BalloonGame({ onNext, isOwner = false }) {
         }, 350);
       }
       return next;
-    });
-
-    setActiveCompliment({
-      text: COMPLIMENTS[index],
-      index: index + 1
     });
   };
 
@@ -120,10 +114,11 @@ export default function BalloonGame({ onNext, isOwner = false }) {
         {BALLOON_STYLES.map((style, idx) => {
           const isPopped = poppedState[idx];
           return (
-            <div key={idx} className="relative flex flex-col items-center h-52 sm:h-56">
-              <AnimatePresence>
+            <div key={idx} className="relative flex flex-col items-center justify-center min-h-[13rem] sm:min-h-[14rem]">
+              <AnimatePresence mode="wait">
                 {!isPopped ? (
                   <motion.div
+                    key="balloon"
                     initial={{ scale: 0.8, opacity: 0 }}
                     animate={{
                       scale: 1,
@@ -135,7 +130,8 @@ export default function BalloonGame({ onNext, isOwner = false }) {
                     transition={{
                       y: { duration: 3 + (idx % 3) * 0.6, repeat: Infinity, ease: "easeInOut" },
                       rotate: { duration: 3.5 + (idx % 2) * 0.5, repeat: Infinity, ease: "easeInOut" },
-                      scale: { duration: 0.25 }
+                      scale: { duration: 0.22 },
+                      opacity: { duration: 0.22 }
                     }}
                     whileHover={{ scale: 1.12 }}
                     whileTap={{ scale: 0.88 }}
@@ -181,12 +177,20 @@ export default function BalloonGame({ onNext, isOwner = false }) {
                   </motion.div>
                 ) : (
                   <motion.div
-                    initial={{ opacity: 0, scale: 0.5 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="w-16 h-16 rounded-full bg-white/95 border-2 border-rose-300 flex flex-col items-center justify-center text-xs text-[#8B4853] font-bold mt-8 shadow-md"
+                    key="compliment"
+                    initial={{ opacity: 0, scale: 0.65, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    transition={{ type: 'spring', stiffness: 320, damping: 22 }}
+                    data-testid={`balloon-message-${idx + 1}`}
+                    className="w-full max-w-[185px] min-h-[144px] sm:min-h-[156px] p-3 sm:p-3.5 rounded-2xl bg-white/95 backdrop-blur-md border-2 border-rose-200/90 shadow-lg shadow-rose-200/40 flex flex-col items-center justify-center text-center"
                   >
-                    <span className="text-lg">✨</span>
-                    <span className="text-[11px]">Popped!</span>
+                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-50 border border-rose-200/80 text-[11px] font-bold text-[#8B4853] mb-2">
+                      <span>{style.icon}</span>
+                      <span>#{idx + 1}</span>
+                    </span>
+                    <p className="text-xs sm:text-[13px] font-serif font-semibold text-[#4A3E3D] leading-snug break-words">
+                      "{COMPLIMENTS[idx]}"
+                    </p>
                   </motion.div>
                 )}
               </AnimatePresence>
@@ -194,33 +198,6 @@ export default function BalloonGame({ onNext, isOwner = false }) {
           );
         })}
       </div>
-
-      {/* Revealed Compliment Modal / Card */}
-      <AnimatePresence>
-        {activeCompliment && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.95 }}
-            className="w-full max-w-lg mx-auto mt-2 p-5 rounded-3xl bg-white border-2 border-rose-300 shadow-2xl relative z-20 backdrop-blur-md"
-          >
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-extrabold uppercase tracking-wider text-rose-600 bg-rose-100 px-3 py-1 rounded-full">
-                Compliment #{activeCompliment.index}
-              </span>
-              <button
-                onClick={() => setActiveCompliment(null)}
-                className="text-sm text-gray-400 hover:text-rose-600 font-bold p-1"
-              >
-                ✕
-              </button>
-            </div>
-            <p className="text-xl sm:text-2xl font-serif text-[#4A3E3D] font-bold py-2">
-              "{activeCompliment.text}"
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Completion Banner & Next Arrow */}
       {isAllPopped && (
